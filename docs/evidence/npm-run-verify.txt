@@ -1,0 +1,20 @@
+
+> stripe-checkout-webhook-bridge@1.0.0 verify
+> node scripts/verify.js
+
+PASS  200  none               valid signed checkout.session.completed is forwarded
+PASS  400  missing_signature  missing Stripe-Signature header is rejected
+PASS  400  invalid_signature  signature made with a wrong secret is rejected
+PASS  400  invalid_signature  body altered after signing is rejected
+PASS  400  invalid_signature  signature older than the 5 minute tolerance is rejected
+PASS  200  none               duplicate delivery of the same event is acknowledged once
+PASS  200  none               other event types are acknowledged and ignored
+PASS  200  none               completed session that is still unpaid is not announced
+PASS  422  invalid_payload    session without amount_total is reported as unprocessable
+PASS  504  timeout            notification API timeout returns 504
+PASS  502  network            unreachable notification API returns 502
+PASS  502  http_error         notification API answering 500 returns 502
+PASS  502  http_error         wrong internal API token (receiver answers 401) returns 502
+PASS  200  none               event that failed once is forwarded when redelivered
+
+14/14 scenarios passed. Report written to docs/Webhook_Verification_and_Error_Log.csv

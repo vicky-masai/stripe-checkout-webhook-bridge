@@ -1,0 +1,21 @@
+{
+  "name": "stripe-checkout-webhook-bridge",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Stripe Checkout webhook that verifies checkout.session.completed events and forwards a normalized payment notification to an internal API",
+  "type": "module",
+  "scripts": {
+    "start": "node src/server.js",
+    "dev": "node --watch src/server.js",
+    "test": "node --test",
+    "verify": "node scripts/verify.js"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "dotenv": "^16.4.7",
+    "express": "^4.21.2",
+    "stripe": "^17.7.0"
+  }
+}

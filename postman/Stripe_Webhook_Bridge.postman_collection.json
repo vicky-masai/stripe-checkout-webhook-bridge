@@ -1,0 +1,606 @@
+{
+  "info": {
+    "_postman_id": "88sku3uegn94gw4e6nk5",
+    "name": "Stripe Webhook Bridge — Local API Checks",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+    "description": "Checks for the Stripe Checkout webhook bridge. Start the service with `npm start`, then set two variables to the values in your local .env: `internalApiToken` (INTERNAL_API_TOKEN) and `webhookSecret` (STRIPE_WEBHOOK_SECRET). The webhook requests sign their body in a pre-request script using Stripe's scheme (HMAC-SHA256 over `timestamp.body`). Never save real secrets into an exported copy of this collection."
+  },
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "http://localhost:4242"
+    },
+    {
+      "key": "mockApiUrl",
+      "value": "http://localhost:5050"
+    },
+    {
+      "key": "internalApiToken",
+      "value": "replace_with_local_test_token"
+    },
+    {
+      "key": "webhookSecret",
+      "value": "whsec_replace_with_local_stripe_cli_secret"
+    }
+  ],
+  "item": [
+    {
+      "name": "Webhook service health",
+      "request": {
+        "method": "GET",
+        "url": "{{baseUrl}}/health"
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test('health responds 200', () => pm.response.to.have.status(200));"
+            ]
+          }
+        }
+      ],
+      "response": [
+        {
+          "name": "200 OK (recorded from local run)",
+          "originalRequest": {
+            "method": "GET",
+            "url": "{{baseUrl}}/health"
+          },
+          "status": "OK",
+          "code": 200,
+          "_postman_previewlanguage": "json",
+          "header": [
+            {
+              "key": "Content-Type",
+              "value": "application/json; charset=utf-8"
+            }
+          ],
+          "cookie": [],
+          "body": "{\n  \"status\": \"ok\"\n}"
+        }
+      ]
+    },
+    {
+      "name": "Local notification API health",
+      "request": {
+        "method": "GET",
+        "url": "{{mockApiUrl}}/health"
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test('receiver responds 200', () => pm.response.to.have.status(200));"
+            ]
+          }
+        }
+      ],
+      "response": [
+        {
+          "name": "200 OK (recorded from local run)",
+          "originalRequest": {
+            "method": "GET",
+            "url": "{{mockApiUrl}}/health"
+          },
+          "status": "OK",
+          "code": 200,
+          "_postman_previewlanguage": "json",
+          "header": [
+            {
+              "key": "Content-Type",
+              "value": "application/json; charset=utf-8"
+            }
+          ],
+          "cookie": [],
+          "body": "{\n  \"status\": \"ok\"\n}"
+        }
+      ]
+    },
+    {
+      "name": "Send normalized notification to local receiver",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          },
+          {
+            "key": "Authorization",
+            "value": "Bearer {{internalApiToken}}"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"transaction_id\": \"cs_test_a1B2c3D4e5F6\",\n  \"customer_email\": \"alex.rivera@example.test\",\n  \"amount\": 4999,\n  \"currency\": \"usd\",\n  \"status\": \"paid\"\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "url": "{{mockApiUrl}}/internal/notifications"
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test('receiver accepts notification', () => pm.response.to.have.status(202));",
+              "pm.test('response confirms acceptance', () => pm.expect(pm.response.json().accepted).to.eql(true));"
+            ]
+          }
+        }
+      ],
+      "response": [
+        {
+          "name": "202 Accepted (recorded from local run)",
+          "originalRequest": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{internalApiToken}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"transaction_id\": \"cs_test_a1B2c3D4e5F6\",\n  \"customer_email\": \"alex.rivera@example.test\",\n  \"amount\": 4999,\n  \"currency\": \"usd\",\n  \"status\": \"paid\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": "{{mockApiUrl}}/internal/notifications"
+          },
+          "status": "Accepted",
+          "code": 202,
+          "_postman_previewlanguage": "json",
+          "header": [
+            {
+              "key": "Content-Type",
+              "value": "application/json; charset=utf-8"
+            }
+          ],
+          "cookie": [],
+          "body": "{\n  \"accepted\": true,\n  \"count\": 1\n}"
+        }
+      ]
+    },
+    {
+      "name": "Stripe webhook: signed checkout.session.completed",
+      "request": {
+        "method": "POST",
+        "description": "Signed with {{webhookSecret}}. The service verifies the signature, maps the session and forwards it to the notification API.",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"id\": \"evt_1QTEST000000000000000001\",\n  \"object\": \"event\",\n  \"api_version\": \"2025-10-29.clover\",\n  \"created\": 1794873600,\n  \"data\": {\n    \"object\": {\n      \"id\": \"cs_test_a1B2c3D4e5F6\",\n      \"object\": \"checkout.session\",\n      \"amount_total\": 4999,\n      \"currency\": \"usd\",\n      \"customer_details\": {\n        \"email\": \"alex.rivera@example.test\"\n      },\n      \"payment_status\": \"paid\",\n      \"status\": \"complete\",\n      \"mode\": \"payment\"\n    }\n  },\n  \"livemode\": false,\n  \"pending_webhooks\": 1,\n  \"type\": \"checkout.session.completed\"\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "url": "{{baseUrl}}/webhooks/stripe"
+      },
+      "event": [
+        {
+          "listen": "prerequest",
+          "script": {
+            "exec": [
+              "// Sign the exact request body the way Stripe does: HMAC-SHA256 over \"<timestamp>.<body>\".",
+              "const cryptoJs = require('crypto-js'); // built into the Postman sandbox",
+              "const timestamp = Math.floor(Date.now() / 1000);",
+              "const signature = cryptoJs.HmacSHA256(`${timestamp}.${pm.request.body.raw}`, pm.variables.get('webhookSecret')).toString();",
+              "pm.request.headers.upsert({ key: 'Stripe-Signature', value: `t=${timestamp},v1=${signature}` });"
+            ]
+          }
+        },
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test('webhook accepts the signed event', () => pm.response.to.have.status(200));",
+              "pm.test('event was forwarded (or already forwarded on an earlier run)', () => pm.expect(pm.response.json().status).to.be.oneOf(['forwarded', 'duplicate']));"
+            ]
+          }
+        }
+      ],
+      "response": [
+        {
+          "name": "200 OK (recorded from local run)",
+          "originalRequest": {
+            "method": "POST",
+            "description": "Signed with {{webhookSecret}}. The service verifies the signature, maps the session and forwards it to the notification API.",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"id\": \"evt_1QTEST000000000000000001\",\n  \"object\": \"event\",\n  \"api_version\": \"2025-10-29.clover\",\n  \"created\": 1794873600,\n  \"data\": {\n    \"object\": {\n      \"id\": \"cs_test_a1B2c3D4e5F6\",\n      \"object\": \"checkout.session\",\n      \"amount_total\": 4999,\n      \"currency\": \"usd\",\n      \"customer_details\": {\n        \"email\": \"alex.rivera@example.test\"\n      },\n      \"payment_status\": \"paid\",\n      \"status\": \"complete\",\n      \"mode\": \"payment\"\n    }\n  },\n  \"livemode\": false,\n  \"pending_webhooks\": 1,\n  \"type\": \"checkout.session.completed\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": "{{baseUrl}}/webhooks/stripe"
+          },
+          "status": "OK",
+          "code": 200,
+          "_postman_previewlanguage": "json",
+          "header": [
+            {
+              "key": "Content-Type",
+              "value": "application/json; charset=utf-8"
+            }
+          ],
+          "cookie": [],
+          "body": "{\n  \"received\": true,\n  \"status\": \"forwarded\"\n}"
+        }
+      ]
+    },
+    {
+      "name": "Stripe webhook: invalid signature is rejected",
+      "request": {
+        "method": "POST",
+        "description": "Signed with a wrong secret on purpose.",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"id\": \"evt_1QTEST000000000000000001\",\n  \"object\": \"event\",\n  \"api_version\": \"2025-10-29.clover\",\n  \"created\": 1794873600,\n  \"data\": {\n    \"object\": {\n      \"id\": \"cs_test_a1B2c3D4e5F6\",\n      \"object\": \"checkout.session\",\n      \"amount_total\": 4999,\n      \"currency\": \"usd\",\n      \"customer_details\": {\n        \"email\": \"alex.rivera@example.test\"\n      },\n      \"payment_status\": \"paid\",\n      \"status\": \"complete\",\n      \"mode\": \"payment\"\n    }\n  },\n  \"livemode\": false,\n  \"pending_webhooks\": 1,\n  \"type\": \"checkout.session.completed\"\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "url": "{{baseUrl}}/webhooks/stripe"
+      },
+      "event": [
+        {
+          "listen": "prerequest",
+          "script": {
+            "exec": [
+              "// Sign the exact request body the way Stripe does: HMAC-SHA256 over \"<timestamp>.<body>\".",
+              "const cryptoJs = require('crypto-js'); // built into the Postman sandbox",
+              "const timestamp = Math.floor(Date.now() / 1000);",
+              "const signature = cryptoJs.HmacSHA256(`${timestamp}.${pm.request.body.raw}`, 'whsec_not_the_configured_secret').toString();",
+              "pm.request.headers.upsert({ key: 'Stripe-Signature', value: `t=${timestamp},v1=${signature}` });"
+            ]
+          }
+        },
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test('invalid signature responds 400', () => pm.response.to.have.status(400));",
+              "pm.test('error names the signature', () => pm.expect(pm.response.json().error).to.eql('Invalid Stripe signature'));"
+            ]
+          }
+        }
+      ],
+      "response": [
+        {
+          "name": "400 Bad Request (recorded from local run)",
+          "originalRequest": {
+            "method": "POST",
+            "description": "Signed with a wrong secret on purpose.",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"id\": \"evt_1QTEST000000000000000001\",\n  \"object\": \"event\",\n  \"api_version\": \"2025-10-29.clover\",\n  \"created\": 1794873600,\n  \"data\": {\n    \"object\": {\n      \"id\": \"cs_test_a1B2c3D4e5F6\",\n      \"object\": \"checkout.session\",\n      \"amount_total\": 4999,\n      \"currency\": \"usd\",\n      \"customer_details\": {\n        \"email\": \"alex.rivera@example.test\"\n      },\n      \"payment_status\": \"paid\",\n      \"status\": \"complete\",\n      \"mode\": \"payment\"\n    }\n  },\n  \"livemode\": false,\n  \"pending_webhooks\": 1,\n  \"type\": \"checkout.session.completed\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": "{{baseUrl}}/webhooks/stripe"
+          },
+          "status": "Bad Request",
+          "code": 400,
+          "_postman_previewlanguage": "json",
+          "header": [
+            {
+              "key": "Content-Type",
+              "value": "application/json; charset=utf-8"
+            }
+          ],
+          "cookie": [],
+          "body": "{\n  \"error\": \"Invalid Stripe signature\"\n}"
+        }
+      ]
+    },
+    {
+      "name": "Stripe webhook: missing signature is rejected",
+      "request": {
+        "method": "POST",
+        "description": "No Stripe-Signature header at all.",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"id\": \"evt_1QTEST000000000000000001\",\n  \"object\": \"event\",\n  \"api_version\": \"2025-10-29.clover\",\n  \"created\": 1794873600,\n  \"data\": {\n    \"object\": {\n      \"id\": \"cs_test_a1B2c3D4e5F6\",\n      \"object\": \"checkout.session\",\n      \"amount_total\": 4999,\n      \"currency\": \"usd\",\n      \"customer_details\": {\n        \"email\": \"alex.rivera@example.test\"\n      },\n      \"payment_status\": \"paid\",\n      \"status\": \"complete\",\n      \"mode\": \"payment\"\n    }\n  },\n  \"livemode\": false,\n  \"pending_webhooks\": 1,\n  \"type\": \"checkout.session.completed\"\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "url": "{{baseUrl}}/webhooks/stripe"
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test('missing signature responds 400', () => pm.response.to.have.status(400));",
+              "pm.test('error names the header', () => pm.expect(pm.response.json().error).to.eql('Missing Stripe-Signature header'));"
+            ]
+          }
+        }
+      ],
+      "response": [
+        {
+          "name": "400 Bad Request (recorded from local run)",
+          "originalRequest": {
+            "method": "POST",
+            "description": "No Stripe-Signature header at all.",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"id\": \"evt_1QTEST000000000000000001\",\n  \"object\": \"event\",\n  \"api_version\": \"2025-10-29.clover\",\n  \"created\": 1794873600,\n  \"data\": {\n    \"object\": {\n      \"id\": \"cs_test_a1B2c3D4e5F6\",\n      \"object\": \"checkout.session\",\n      \"amount_total\": 4999,\n      \"currency\": \"usd\",\n      \"customer_details\": {\n        \"email\": \"alex.rivera@example.test\"\n      },\n      \"payment_status\": \"paid\",\n      \"status\": \"complete\",\n      \"mode\": \"payment\"\n    }\n  },\n  \"livemode\": false,\n  \"pending_webhooks\": 1,\n  \"type\": \"checkout.session.completed\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": "{{baseUrl}}/webhooks/stripe"
+          },
+          "status": "Bad Request",
+          "code": 400,
+          "_postman_previewlanguage": "json",
+          "header": [
+            {
+              "key": "Content-Type",
+              "value": "application/json; charset=utf-8"
+            }
+          ],
+          "cookie": [],
+          "body": "{\n  \"error\": \"Missing Stripe-Signature header\"\n}"
+        }
+      ]
+    },
+    {
+      "name": "Local receiver rejects a wrong token",
+      "request": {
+        "method": "POST",
+        "description": "Contract check: auth_error_status 401.",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          },
+          {
+            "key": "Authorization",
+            "value": "Bearer not-the-configured-token"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"transaction_id\": \"cs_test_a1B2c3D4e5F6\",\n  \"customer_email\": \"alex.rivera@example.test\",\n  \"amount\": 4999,\n  \"currency\": \"usd\",\n  \"status\": \"paid\"\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "url": "{{mockApiUrl}}/internal/notifications"
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test('wrong token responds 401', () => pm.response.to.have.status(401));"
+            ]
+          }
+        }
+      ],
+      "response": [
+        {
+          "name": "401 Unauthorized (recorded from local run)",
+          "originalRequest": {
+            "method": "POST",
+            "description": "Contract check: auth_error_status 401.",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer not-the-configured-token"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"transaction_id\": \"cs_test_a1B2c3D4e5F6\",\n  \"customer_email\": \"alex.rivera@example.test\",\n  \"amount\": 4999,\n  \"currency\": \"usd\",\n  \"status\": \"paid\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": "{{mockApiUrl}}/internal/notifications"
+          },
+          "status": "Unauthorized",
+          "code": 401,
+          "_postman_previewlanguage": "json",
+          "header": [
+            {
+              "key": "Content-Type",
+              "value": "application/json; charset=utf-8"
+            }
+          ],
+          "cookie": [],
+          "body": "{\n  \"error\": \"Unauthorized\"\n}"
+        }
+      ]
+    },
+    {
+      "name": "Local receiver rejects an incomplete payload",
+      "request": {
+        "method": "POST",
+        "description": "Contract check: validation_error_status 422.",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          },
+          {
+            "key": "Authorization",
+            "value": "Bearer {{internalApiToken}}"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"transaction_id\": \"cs_test_a1B2c3D4e5F6\",\n  \"amount\": 4999\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "url": "{{mockApiUrl}}/internal/notifications"
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test('incomplete payload responds 422', () => pm.response.to.have.status(422));",
+              "pm.test('missing fields are listed', () => pm.expect(pm.response.json().fields).to.include.members(['customer_email', 'currency', 'status']));"
+            ]
+          }
+        }
+      ],
+      "response": [
+        {
+          "name": "422 Unprocessable Entity (recorded from local run)",
+          "originalRequest": {
+            "method": "POST",
+            "description": "Contract check: validation_error_status 422.",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{internalApiToken}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"transaction_id\": \"cs_test_a1B2c3D4e5F6\",\n  \"amount\": 4999\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": "{{mockApiUrl}}/internal/notifications"
+          },
+          "status": "Unprocessable Entity",
+          "code": 422,
+          "_postman_previewlanguage": "json",
+          "header": [
+            {
+              "key": "Content-Type",
+              "value": "application/json; charset=utf-8"
+            }
+          ],
+          "cookie": [],
+          "body": "{\n  \"error\": \"Missing fields\",\n  \"fields\": [\n    \"customer_email\",\n    \"currency\",\n    \"status\"\n  ]\n}"
+        }
+      ]
+    },
+    {
+      "name": "List received local notifications",
+      "request": {
+        "method": "GET",
+        "url": "{{mockApiUrl}}/internal/notifications"
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test('notification list responds 200', () => pm.response.to.have.status(200));",
+              "pm.test('response contains items array', () => pm.expect(pm.response.json().items).to.be.an('array'));",
+              "pm.test('list holds the notifications sent in this run', () => pm.expect(pm.response.json().items.length).to.be.at.least(2));"
+            ]
+          }
+        }
+      ],
+      "response": [
+        {
+          "name": "200 OK (recorded from local run)",
+          "originalRequest": {
+            "method": "GET",
+            "url": "{{mockApiUrl}}/internal/notifications"
+          },
+          "status": "OK",
+          "code": 200,
+          "_postman_previewlanguage": "json",
+          "header": [
+            {
+              "key": "Content-Type",
+              "value": "application/json; charset=utf-8"
+            }
+          ],
+          "cookie": [],
+          "body": "{\n  \"items\": [\n    {\n      \"transaction_id\": \"cs_test_a1B2c3D4e5F6\",\n      \"customer_email\": \"alex.rivera@example.test\",\n      \"amount\": 4999,\n      \"currency\": \"usd\",\n      \"status\": \"paid\",\n      \"received_at\": \"2026-11-17T05:10:50.854Z\"\n    },\n    {\n      \"transaction_id\": \"cs_test_a1B2c3D4e5F6\",\n      \"customer_email\": \"alex.rivera@example.test\",\n      \"amount\": 4999,\n      \"currency\": \"usd\",\n      \"status\": \"paid\",\n      \"received_at\": \"2026-11-17T05:10:50.883Z\"\n    }\n  ]\n}"
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,172 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Technical Implementation Summary - Stripe Checkout Webhook Bridge</title>
+<style>
+  @page { size: A4; margin: 18mm 16mm; }
+  body { font-family: -apple-system, "Helvetica Neue", Arial, sans-serif; font-size: 10.5pt; line-height: 1.45; color: #1c1c1c; }
+  h1 { font-size: 20pt; margin: 0 0 2pt; }
+  h2 { font-size: 13pt; margin: 18pt 0 6pt; padding-bottom: 3pt; border-bottom: 1px solid #bbb; break-after: avoid; }
+  h3 { font-size: 11pt; margin: 12pt 0 4pt; break-after: avoid; }
+  p { margin: 0 0 6pt; }
+  .meta { color: #555; margin-bottom: 12pt; }
+  table { border-collapse: collapse; width: 100%; margin: 6pt 0 10pt; font-size: 9.5pt; break-inside: avoid; }
+  th, td { border: 1px solid #c9c9c9; padding: 4pt 6pt; text-align: left; vertical-align: top; }
+  th { background: #f0f0f0; }
+  code, pre { font-family: Menlo, Consolas, monospace; font-size: 9pt; }
+  pre { background: #f5f5f5; border: 1px solid #ddd; padding: 6pt 8pt; white-space: pre-wrap; break-inside: avoid; }
+  .note { background: #fff6e0; border: 1px solid #e0c070; padding: 6pt 8pt; margin: 8pt 0; break-inside: avoid; }
+  ul, ol { margin: 0 0 6pt; padding-left: 18pt; }
+  .pass { color: #116611; font-weight: 600; }
+  .notrun { color: #a05a00; font-weight: 600; }
+</style>
+</head>
+<body>
+
+<h1>Technical Implementation Summary</h1>
+<p class="meta">Stripe Checkout Webhook Bridge &middot; Job 88Sku3UEGN94gw4e6Nk5 &middot; 17 November 2026<br>
+Repository: https://github.com/vicky-masai/stripe-checkout-webhook-bridge</p>
+
+<h2>1. Overview</h2>
+<p><b>Purpose.</b> Receive Stripe <code>checkout.session.completed</code> webhooks, confirm that each one was really sent by Stripe, extract the payment details and forward a short, normalized notification to a configurable internal notification API.</p>
+<p><b>Event flow.</b></p>
+<pre>Stripe --POST /webhooks/stripe (Stripe-Signature)--> webhook service
+   1. verify signature on the raw request bytes
+   2. keep only checkout.session.completed with a successful payment
+   3. skip events already forwarded
+   4. map session fields to the notification payload
+   5. POST to INTERNAL_API_URL with a Bearer token and a timeout
+   6. answer Stripe: 2xx = done, non-2xx = please redeliver</pre>
+<table>
+  <tr><th style="width:28%">Item</th><th>Detail</th></tr>
+  <tr><td>Runtime</td><td>Node.js 20 or newer, ES modules. Developed and tested on Node.js 24.17.0.</td></tr>
+  <tr><td>Dependencies</td><td><code>express</code> 4 (HTTP), <code>stripe</code> 17 (signature verification), <code>dotenv</code> 16 (loads <code>.env</code>). No others; outbound HTTP uses Node's built-in <code>fetch</code>.</td></tr>
+  <tr><td>Tests</td><td>Node's built-in test runner (<code>npm test</code>), no extra packages.</td></tr>
+</table>
+
+<h2>2. Architecture</h2>
+<table>
+  <tr><th style="width:28%">Module</th><th>Responsibility</th></tr>
+  <tr><td><code>src/server.js</code></td><td>Entry point. Loads and validates configuration, starts the service and (optionally) the local receiver.</td></tr>
+  <tr><td><code>src/app.js</code></td><td>Express app. The webhook route uses <code>express.raw({ type: 'application/json' })</code> so the handler gets the unmodified bytes; the JSON parser is registered after it.</td></tr>
+  <tr><td><code>src/webhook.js</code></td><td>The handler: signature verification, event filtering, idempotency check, mapping, forwarding, HTTP response and audit log.</td></tr>
+  <tr><td><code>src/checkout-session.js</code></td><td>Field mapping and the rule for "payment successful".</td></tr>
+  <tr><td><code>src/notification-client.js</code></td><td>Authenticated POST with timeout. Turns every failure into one of three categories: <code>timeout</code>, <code>network</code>, <code>http_error</code>.</td></tr>
+  <tr><td><code>src/idempotency-store.js</code></td><td>Remembers forwarded event ids (in memory, 24 h, max 10,000).</td></tr>
+  <tr><td><code>src/config.js</code>, <code>src/logger.js</code></td><td>Environment configuration with validation; JSON-lines audit logger with email masking.</td></tr>
+</table>
+
+<h3>Signature verification</h3>
+<p><code>stripe.webhooks.constructEvent(rawBody, signatureHeader, STRIPE_WEBHOOK_SECRET)</code> is called with the raw <code>Buffer</code> and the <code>Stripe-Signature</code> header. It recomputes the HMAC-SHA256 signature and also rejects timestamps older than five minutes (replay protection). A missing header or a failed check returns HTTP 400 before any payload is read or forwarded.</p>
+
+<h3>Event filtering</h3>
+<p>Only <code>checkout.session.completed</code> is processed. Other verified event types get 200 and are ignored. A completed session whose <code>payment_status</code> is neither <code>paid</code> nor <code>no_payment_required</code> (delayed payment methods) is also acknowledged and not announced, because the money has not arrived yet.</p>
+
+<h3>Field mapping</h3>
+<table>
+  <tr><th>Checkout Session field</th><th>Notification field</th><th>Rule</th></tr>
+  <tr><td><code>id</code></td><td><code>transaction_id</code></td><td>required string</td></tr>
+  <tr><td><code>customer_details.email</code></td><td><code>customer_email</code></td><td><code>null</code> when Stripe has no email</td></tr>
+  <tr><td><code>amount_total</code></td><td><code>amount</code></td><td>required integer, minor units (4999 = 49.99)</td></tr>
+  <tr><td><code>currency</code></td><td><code>currency</code></td><td>required, lowercase ISO 4217</td></tr>
+  <tr><td><code>payment_status</code></td><td><code>status</code></td><td>required string</td></tr>
+</table>
+<p>If a required field is absent the service answers 422 and names the field. The output for the supplied fixture equals <code>fixtures/notification-payload.expected.json</code> exactly (checked by a test).</p>
+
+<h3>Downstream API call</h3>
+<p><code>POST INTERNAL_API_URL</code> with <code>Content-Type: application/json</code>, <code>Authorization: Bearer INTERNAL_API_TOKEN</code> and <code>Idempotency-Key: &lt;Stripe event id&gt;</code>. Any 2xx answer counts as delivered (the supplied receiver answers 202).</p>
+
+<h2>3. Configuration</h2>
+<p>All settings are environment variables, loaded from a git-ignored <code>.env</code> file in development. <code>.env.example</code> contains placeholders only.</p>
+<table>
+  <tr><th style="width:34%">Variable</th><th style="width:12%">Required</th><th>Meaning</th></tr>
+  <tr><td><code>STRIPE_WEBHOOK_SECRET</code></td><td>yes</td><td>Endpoint signing secret from <code>stripe listen</code> or the Stripe dashboard</td></tr>
+  <tr><td><code>INTERNAL_API_URL</code></td><td>yes</td><td>Notification endpoint; default points at the local receiver</td></tr>
+  <tr><td><code>INTERNAL_API_TOKEN</code></td><td>yes</td><td>Bearer token for the notification endpoint</td></tr>
+  <tr><td><code>INTERNAL_API_TIMEOUT_MS</code></td><td>no</td><td>Forwarding timeout, default 5000</td></tr>
+  <tr><td><code>PORT</code></td><td>no</td><td>Webhook service port, default 4242</td></tr>
+  <tr><td><code>STRIPE_SECRET_KEY</code></td><td>no</td><td>Stripe test key; not needed to verify signatures</td></tr>
+  <tr><td><code>START_MOCK_NOTIFICATION_API</code>, <code>MOCK_API_PORT</code></td><td>no</td><td>Switch off or move the bundled local receiver</td></tr>
+</table>
+<p>The service exits at start-up with a clear message if a required variable is missing or the URL is not valid. The message lists variable names only.</p>
+<p><b>Stripe CLI commands.</b></p>
+<pre>stripe login
+stripe listen --forward-to localhost:4242/webhooks/stripe
+stripe trigger checkout.session.completed</pre>
+<p>The <code>whsec_...</code> value printed by <code>stripe listen</code> goes into <code>STRIPE_WEBHOOK_SECRET</code>. To use a real internal messaging service, change <code>INTERNAL_API_URL</code> and <code>INTERNAL_API_TOKEN</code> and set <code>START_MOCK_NOTIFICATION_API=false</code>; no code change is needed.</p>
+
+<h2>4. Reliability and security</h2>
+<table>
+  <tr><th style="width:24%">Situation</th><th style="width:12%">Response</th><th>Behaviour</th></tr>
+  <tr><td>Forwarded / duplicate / ignored</td><td>200</td><td>Stripe stops delivering the event</td></tr>
+  <tr><td>Signature missing or invalid</td><td>400</td><td>Nothing processed or forwarded</td></tr>
+  <tr><td>Required field missing</td><td>422</td><td>Field name logged and returned</td></tr>
+  <tr><td>Receiver unreachable or non-2xx</td><td>502</td><td>Logged as <code>network</code> or <code>http_error</code>; Stripe redelivers</td></tr>
+  <tr><td>Receiver timed out</td><td>504</td><td>Request aborted with <code>AbortSignal.timeout</code>; logged as <code>timeout</code>; Stripe redelivers</td></tr>
+</table>
+<ul>
+  <li><b>Timeout.</b> One bounded attempt per delivery (default 5 s), so the service always answers Stripe promptly.</li>
+  <li><b>Retry.</b> The service does not retry by itself. A non-2xx answer makes Stripe redeliver with exponential backoff (up to three days in live mode). This is durable across restarts of this service, which an in-process retry loop would not be.</li>
+  <li><b>Idempotency.</b> An event id is stored only after the receiver accepted the notification. A repeat of a delivered event gets 200 "duplicate" and is not forwarded again; a repeat of a failed event is forwarded. The event id is also sent as <code>Idempotency-Key</code> so the receiver can de-duplicate.</li>
+  <li><b>Structured logs.</b> One JSON object per line with <code>timestamp</code>, <code>level</code>, <code>event</code>, <code>event_id</code>, <code>event_type</code>, <code>stage</code>, <code>error_category</code> and <code>http_status</code>.</li>
+  <li><b>Sensitive data.</b> Secrets, the signature header and request bodies are never logged. Customer emails are masked (<code>a***@example.test</code>). Error responses to the caller are generic. <code>.env</code> is excluded by <code>.gitignore</code>; the Postman files contain placeholders only.</li>
+</ul>
+<p>Sample audit log lines from the Postman run (full file: <code>docs/evidence/server-audit-log-postman-run.txt</code>):</p>
+<pre>{"timestamp":"2026-11-17T05:10:50.886Z","level":"info","event":"notification_forwarded","event_id":"evt_1QTEST000000000000000001","event_type":"checkout.session.completed","transaction_id":"cs_test_a1B2c3D4e5F6","customer_email":"a***@example.test","amount":4999,"currency":"usd","status":"paid","downstream_status":202,"http_status":200}
+{"timestamp":"2026-11-17T05:10:50.911Z","level":"warn","event":"webhook_rejected","stage":"signature_verification","error_category":"missing_signature","http_status":400}</pre>
+
+<h2>5. Verification</h2>
+<p>All results below were produced by actually running the commands on 17 November 2026 (Node.js 24.17.0, macOS). Raw output is in <code>docs/evidence/</code>.</p>
+
+<div class="note"><b>Stripe CLI delivery: <span class="notrun">not run.</span></b> The Stripe CLI was not installed in the build environment and it needs a login to a Stripe test account, so <code>stripe listen</code> / <code>stripe trigger</code> were not executed and no result is claimed for them. Signed deliveries were instead produced with the Stripe SDK's own signer (<code>stripe.webhooks.generateTestHeaderString</code>) and with the Postman pre-request script; both use the same <code>t=...,v1=HMAC-SHA256</code> scheme and were verified by the same <code>constructEvent</code> call the CLI path uses. The CLI commands in section 3 should be run once with the account owner's test credentials before production use.</div>
+
+<h3>Automated tests: <code>npm test</code> &rarr; <span class="pass">19 of 19 passed</span></h3>
+<h3>Scenario report: <code>npm run verify</code> &rarr; <span class="pass">14 of 14 passed</span></h3>
+<p>Each scenario starts the real app, sends a real HTTP request and records the response and log entry in <code>Webhook_Verification_and_Error_Log.csv</code>.</p>
+<table>
+  <tr><th>Scenario</th><th style="width:9%">HTTP</th><th style="width:21%">Log category</th><th style="width:9%">Result</th></tr>
+  <tr><td>Valid signed checkout.session.completed; receiver stored the expected payload</td><td>200</td><td>none (forwarded)</td><td class="pass">pass</td></tr>
+  <tr><td>Missing Stripe-Signature header</td><td>400</td><td>missing_signature</td><td class="pass">pass</td></tr>
+  <tr><td>Signature made with a wrong secret</td><td>400</td><td>invalid_signature</td><td class="pass">pass</td></tr>
+  <tr><td>Body altered after signing</td><td>400</td><td>invalid_signature</td><td class="pass">pass</td></tr>
+  <tr><td>Signature 10 minutes old (replay)</td><td>400</td><td>invalid_signature</td><td class="pass">pass</td></tr>
+  <tr><td>Same event delivered twice; forwarded once</td><td>200</td><td>none (duplicate)</td><td class="pass">pass</td></tr>
+  <tr><td>Other event type (payment_intent.created)</td><td>200</td><td>none (ignored)</td><td class="pass">pass</td></tr>
+  <tr><td>Completed session still unpaid</td><td>200</td><td>none (ignored)</td><td class="pass">pass</td></tr>
+  <tr><td>Session without amount_total</td><td>422</td><td>invalid_payload</td><td class="pass">pass</td></tr>
+  <tr><td>Receiver never answers (timeout 300 ms; answered after 306 ms)</td><td>504</td><td>timeout</td><td class="pass">pass</td></tr>
+  <tr><td>Receiver unreachable (ECONNREFUSED)</td><td>502</td><td>network</td><td class="pass">pass</td></tr>
+  <tr><td>Receiver answers 500</td><td>502</td><td>http_error</td><td class="pass">pass</td></tr>
+  <tr><td>Wrong API token; supplied receiver answers 401</td><td>502</td><td>http_error</td><td class="pass">pass</td></tr>
+  <tr><td>Failed event (503) redelivered after receiver recovers</td><td>200</td><td>none (forwarded)</td><td class="pass">pass</td></tr>
+</table>
+
+<h3>Postman collection (run with Newman against <code>npm start</code>) &rarr; <span class="pass">9 requests, 16 of 16 assertions passed</span></h3>
+<table>
+  <tr><th>Request</th><th style="width:22%">Response</th></tr>
+  <tr><td>Webhook service health</td><td>200 OK</td></tr>
+  <tr><td>Local notification API health</td><td>200 OK</td></tr>
+  <tr><td>Send normalized notification to local receiver</td><td>202 Accepted</td></tr>
+  <tr><td>Stripe webhook: signed checkout.session.completed</td><td>200 OK, "forwarded"</td></tr>
+  <tr><td>Stripe webhook: invalid signature</td><td>400 Bad Request</td></tr>
+  <tr><td>Stripe webhook: missing signature</td><td>400 Bad Request</td></tr>
+  <tr><td>Local receiver rejects a wrong token</td><td>401 Unauthorized</td></tr>
+  <tr><td>Local receiver rejects an incomplete payload</td><td>422 Unprocessable Entity</td></tr>
+  <tr><td>List received local notifications (2 items)</td><td>200 OK</td></tr>
+</table>
+<p>The recorded responses are saved in the collection as example responses. The collection was run with the Newman command-line runner, not the Postman desktop app.</p>
+
+<h2>6. Deployment</h2>
+<p><b>Source.</b> https://github.com/vicky-masai/stripe-checkout-webhook-bridge</p>
+<p><b>To run.</b> <code>npm install</code>, create <code>.env</code> from <code>.env.example</code>, <code>npm start</code>. For a hosted deployment set the same variables in the platform's secret store, expose <code>POST /webhooks/stripe</code> over HTTPS, register that URL in the Stripe dashboard for <code>checkout.session.completed</code> and use that endpoint's signing secret.</p>
+<p><b>Limitations.</b></p>
+<ul>
+  <li>Not yet verified with the Stripe CLI or a live Stripe account (see section 5).</li>
+  <li>Duplicate detection is in memory: per instance and cleared on restart. With several instances, use a shared store (for example Redis) or rely on the receiver honouring <code>Idempotency-Key</code>.</li>
+  <li>Payments completed later through delayed payment methods arrive as <code>checkout.session.async_payment_succeeded</code>, which is outside the assignment scope and is ignored.</li>
+  <li>The bundled receiver is a local test stand-in, not a real messaging service. Connect a real one only with its owner's authorisation and credentials.</li>
+</ul>
+
+</body>
+</html>

@@ -1,0 +1,66 @@
+newman
+
+Stripe Webhook Bridge — Local API Checks
+
+→ Webhook service health
+  GET http://localhost:4242/health [200 OK, 226B, 17ms]
+  ✓  health responds 200
+
+→ Local notification API health
+  GET http://localhost:5050/health [200 OK, 249B, 2ms]
+  ✓  receiver responds 200
+
+→ Send normalized notification to local receiver
+  POST http://localhost:5050/internal/notifications [202 Accepted, 268B, 9ms]
+  ✓  receiver accepts notification
+  ✓  response confirms acceptance
+
+→ Stripe webhook: signed checkout.session.completed
+  POST http://localhost:4242/webhooks/stripe [200 OK, 250B, 20ms]
+  ✓  webhook accepts the signed event
+  ✓  event was forwarded (or already forwarded on an earlier run)
+
+→ Stripe webhook: invalid signature is rejected
+  POST http://localhost:4242/webhooks/stripe [400 Bad Request, 257B, 2ms]
+  ✓  invalid signature responds 400
+  ✓  error names the signature
+
+→ Stripe webhook: missing signature is rejected
+  POST http://localhost:4242/webhooks/stripe [400 Bad Request, 264B, 1ms]
+  ✓  missing signature responds 400
+  ✓  error names the header
+
+→ Local receiver rejects a wrong token
+  POST http://localhost:5050/internal/notifications [401 Unauthorized, 269B, 1ms]
+  ✓  wrong token responds 401
+
+→ Local receiver rejects an incomplete payload
+  POST http://localhost:5050/internal/notifications [422 Unprocessable Entity, 327B, 1ms]
+  ✓  incomplete payload responds 422
+  ✓  missing fields are listed
+
+→ List received local notifications
+  GET http://localhost:5050/internal/notifications [200 OK, 596B, 1ms]
+  ✓  notification list responds 200
+  ✓  response contains items array
+  ✓  list holds the notifications sent in this run
+
+┌─────────────────────────┬─────────────────┬─────────────────┐
+│                         │        executed │          failed │
+├─────────────────────────┼─────────────────┼─────────────────┤
+│              iterations │               1 │               0 │
+├─────────────────────────┼─────────────────┼─────────────────┤
+│                requests │               9 │               0 │
+├─────────────────────────┼─────────────────┼─────────────────┤
+│            test-scripts │               9 │               0 │
+├─────────────────────────┼─────────────────┼─────────────────┤
+│      prerequest-scripts │               2 │               0 │
+├─────────────────────────┼─────────────────┼─────────────────┤
+│              assertions │              16 │               0 │
+├─────────────────────────┴─────────────────┴─────────────────┤
+│ total run duration: 159ms                                   │
+├─────────────────────────────────────────────────────────────┤
+│ total data received: 631B (approx)                          │
+├─────────────────────────────────────────────────────────────┤
+│ average response time: 6ms [min: 1ms, max: 20ms, s.d.: 7ms] │
+└─────────────────────────────────────────────────────────────┘

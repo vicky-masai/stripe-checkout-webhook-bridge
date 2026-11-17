@@ -1,0 +1,18 @@
+{
+  "method": "POST",
+  "path": "/internal/notifications",
+  "headers": {
+    "Content-Type": "application/json",
+    "Authorization": "Bearer <INTERNAL_API_TOKEN>"
+  },
+  "required_fields": {
+    "transaction_id": "string",
+    "customer_email": "string|null",
+    "amount": "integer_minor_units",
+    "currency": "ISO 4217 lowercase string",
+    "status": "string"
+  },
+  "success_status": 202,
+  "validation_error_status": 422,
+  "auth_error_status": 401
+}

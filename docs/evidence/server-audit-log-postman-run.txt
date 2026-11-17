@@ -1,0 +1,5 @@
+Webhook service listening on http://localhost:4242
+Local notification API listening on http://localhost:5050
+{"timestamp":"2026-11-17T05:10:50.886Z","level":"info","event":"notification_forwarded","event_id":"evt_1QTEST000000000000000001","event_type":"checkout.session.completed","transaction_id":"cs_test_a1B2c3D4e5F6","customer_email":"a***@example.test","amount":4999,"currency":"usd","status":"paid","downstream_status":202,"http_status":200}
+{"timestamp":"2026-11-17T05:10:50.900Z","level":"warn","event":"webhook_rejected","stage":"signature_verification","error_category":"invalid_signature","http_status":400,"message":"No signatures found matching the expected signature for payload. Are you passing the raw request body you received from Stripe?"}
+{"timestamp":"2026-11-17T05:10:50.911Z","level":"warn","event":"webhook_rejected","stage":"signature_verification","error_category":"missing_signature","http_status":400}
