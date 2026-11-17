@@ -119,11 +119,22 @@ stripe trigger checkout.session.completed</pre>
 <h2>5. Verification</h2>
 <p>All results below were produced by actually running the commands on 17 November 2026 (Node.js 24.17.0, macOS). Raw output is in <code>docs/evidence/</code>.</p>
 
-<div class="note"><b>Stripe CLI delivery: <span class="notrun">not run.</span></b> The Stripe CLI was not installed in the build environment and it needs a login to a Stripe test account, so <code>stripe listen</code> / <code>stripe trigger</code> were not executed and no result is claimed for them. Signed deliveries were instead produced with the Stripe SDK's own signer (<code>stripe.webhooks.generateTestHeaderString</code>) and with the Postman pre-request script; both use the same <code>t=...,v1=HMAC-SHA256</code> scheme and were verified by the same <code>constructEvent</code> call the CLI path uses. The CLI commands in section 3 should be run once with the account owner's test credentials before production use.</div>
+<h3>Stripe CLI delivery (real Stripe-signed events) &rarr; <span class="pass">passed</span></h3>
+<p>Run with Stripe CLI 1.55.11 against a Stripe test sandbox. <code>STRIPE_WEBHOOK_SECRET</code> was set to the signing secret printed by <code>stripe listen</code>.</p>
+<pre>stripe listen --events checkout.session.completed,payment_intent.succeeded --forward-to localhost:4242/webhooks/stripe
+stripe trigger checkout.session.completed
+stripe events resend evt_1UcepxDoNYIdNccY47CtSrsJ</pre>
+<table>
+  <tr><th>Event delivered by Stripe</th><th style="width:9%">HTTP</th><th>Outcome in the audit log</th></tr>
+  <tr><td><code>checkout.session.completed</code> (evt_1Ucepx...)</td><td>200</td><td><code>notification_forwarded</code>: signature verified, receiver answered 202 and stored amount 3000, currency usd, status paid</td></tr>
+  <tr><td><code>payment_intent.succeeded</code> (evt_3Ucepw...)</td><td>200</td><td><code>webhook_ignored</code>: signature verified, event type not handled</td></tr>
+  <tr><td>Same <code>checkout.session.completed</code> redelivered</td><td>200</td><td><code>webhook_duplicate</code>: not forwarded a second time</td></tr>
+</table>
+<p>Evidence: <code>docs/evidence/stripe-cli-listen.txt</code> and <code>server-audit-log-stripe-cli-run.txt</code>. Rejection cases (bad, tampered, expired or missing signature) cannot be produced by the Stripe CLI, which always signs correctly; they are covered by the scenario report and the Postman run below.</p>
 
 <h3>Automated tests: <code>npm test</code> &rarr; <span class="pass">19 of 19 passed</span></h3>
 <h3>Scenario report: <code>npm run verify</code> &rarr; <span class="pass">14 of 14 passed</span></h3>
-<p>Each scenario starts the real app, sends a real HTTP request and records the response and log entry in <code>Webhook_Verification_and_Error_Log.csv</code>.</p>
+<p>Requests are signed with the Stripe SDK's own test signer. Each scenario starts the real app, sends a real HTTP request and records the response and log entry in <code>Webhook_Verification_and_Error_Log.csv</code>.</p>
 <table>
   <tr><th>Scenario</th><th style="width:9%">HTTP</th><th style="width:21%">Log category</th><th style="width:9%">Result</th></tr>
   <tr><td>Valid signed checkout.session.completed; receiver stored the expected payload</td><td>200</td><td>none (forwarded)</td><td class="pass">pass</td></tr>
@@ -162,7 +173,7 @@ stripe trigger checkout.session.completed</pre>
 <p><b>To run.</b> <code>npm install</code>, create <code>.env</code> from <code>.env.example</code>, <code>npm start</code>. For a hosted deployment set the same variables in the platform's secret store, expose <code>POST /webhooks/stripe</code> over HTTPS, register that URL in the Stripe dashboard for <code>checkout.session.completed</code> and use that endpoint's signing secret.</p>
 <p><b>Limitations.</b></p>
 <ul>
-  <li>Not yet verified with the Stripe CLI or a live Stripe account (see section 5).</li>
+  <li>Verified in Stripe test mode only; not exercised with a live-mode account or a deployed HTTPS endpoint.</li>
   <li>Duplicate detection is in memory: per instance and cleared on restart. With several instances, use a shared store (for example Redis) or rely on the receiver honouring <code>Idempotency-Key</code>.</li>
   <li>Payments completed later through delayed payment methods arrive as <code>checkout.session.async_payment_succeeded</code>, which is outside the assignment scope and is ignored.</li>
   <li>The bundled receiver is a local test stand-in, not a real messaging service. Connect a real one only with its owner's authorisation and credentials.</li>

@@ -1,0 +1,13 @@
+$ stripe listen --events checkout.session.completed,payment_intent.succeeded --forward-to localhost:4242/webhooks/stripe
+$ stripe trigger checkout.session.completed      (second terminal)
+$ stripe events resend evt_1UcepxDoNYIdNccY47CtSrsJ   (second terminal, redelivery check)
+(Stripe CLI 1.55.11, Stripe test sandbox; times are local, UTC+05:30; signing secret hidden)
+<claude-code-hint v="1" type="plugin" value="stripe@anthropic-plugin-directory" />
+Getting ready...
+Ready! Your webhook signing secret is whsec_<hidden> (^C to quit)
+2026-11-17 10:51:45   --> payment_intent.succeeded [evt_3UcepwDoNYIdNccY311Ireuy]
+2026-11-17 10:51:45  <--  [200] POST http://localhost:4242/webhooks/stripe [evt_3UcepwDoNYIdNccY311Ireuy]
+2026-11-17 10:51:45   --> checkout.session.completed [evt_1UcepxDoNYIdNccY47CtSrsJ]
+2026-11-17 10:51:45  <--  [200] POST http://localhost:4242/webhooks/stripe [evt_1UcepxDoNYIdNccY47CtSrsJ]
+2026-11-17 10:52:01   --> checkout.session.completed [evt_1UcepxDoNYIdNccY47CtSrsJ]
+2026-11-17 10:52:01  <--  [200] POST http://localhost:4242/webhooks/stripe [evt_1UcepxDoNYIdNccY47CtSrsJ]

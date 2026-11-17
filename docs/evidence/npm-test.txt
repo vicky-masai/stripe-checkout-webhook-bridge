@@ -2,25 +2,25 @@
 > stripe-checkout-webhook-bridge@1.0.0 test
 > node --test
 
-✔ valid signed checkout.session.completed is forwarded (26.859125ms)
-✔ missing Stripe-Signature header is rejected (4.242292ms)
-✔ signature made with a wrong secret is rejected (2.509542ms)
-✔ body altered after signing is rejected (2.211333ms)
-✔ signature older than the 5 minute tolerance is rejected (1.889375ms)
-✔ duplicate delivery of the same event is acknowledged once (6.656791ms)
-✔ other event types are acknowledged and ignored (1.951792ms)
-✔ completed session that is still unpaid is not announced (1.549208ms)
-✔ session without amount_total is reported as unprocessable (1.618625ms)
-✔ notification API timeout returns 504 (306.726458ms)
-✔ unreachable notification API returns 502 (11.398417ms)
-✔ notification API answering 500 returns 502 (6.033292ms)
-✔ wrong internal API token (receiver answers 401) returns 502 (8.851167ms)
-✔ event that failed once is forwarded when redelivered (6.543625ms)
-✔ mapping tolerates a session without customer details (0.115541ms)
-✔ mapping names every missing field (0.35125ms)
-✔ configuration fails fast and names the missing variables, not their values (0.192375ms)
-✔ configuration falls back to a 5000 ms timeout when the value is unusable (0.073792ms)
-✔ email addresses are masked for logging (0.046375ms)
+✔ valid signed checkout.session.completed is forwarded (27.535459ms)
+✔ missing Stripe-Signature header is rejected (7.5735ms)
+✔ signature made with a wrong secret is rejected (3.086417ms)
+✔ body altered after signing is rejected (2.905959ms)
+✔ signature older than the 5 minute tolerance is rejected (2.324584ms)
+✔ duplicate delivery of the same event is acknowledged once (5.942375ms)
+✔ other event types are acknowledged and ignored (2.022333ms)
+✔ completed session that is still unpaid is not announced (1.719959ms)
+✔ session without amount_total is reported as unprocessable (1.814666ms)
+✔ notification API timeout returns 504 (304.307375ms)
+✔ unreachable notification API returns 502 (19.257583ms)
+✔ notification API answering 500 returns 502 (6.042916ms)
+✔ wrong internal API token (receiver answers 401) returns 502 (7.755833ms)
+✔ event that failed once is forwarded when redelivered (6.577833ms)
+✔ mapping tolerates a session without customer details (0.089458ms)
+✔ mapping names every missing field (0.2275ms)
+✔ configuration fails fast and names the missing variables, not their values (0.123292ms)
+✔ configuration falls back to a 5000 ms timeout when the value is unusable (0.046375ms)
+✔ email addresses are masked for logging (0.030417ms)
 ℹ tests 19
 ℹ suites 0
 ℹ pass 19
@@ -28,4 +28,4 @@
 ℹ cancelled 0
 ℹ skipped 0
 ℹ todo 0
-ℹ duration_ms 509.388584
+ℹ duration_ms 518.238125

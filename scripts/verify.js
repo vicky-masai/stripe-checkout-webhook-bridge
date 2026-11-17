@@ -3,10 +3,13 @@
  *
  * Runs every scenario from harness.js against the real webhook app and writes
  * what actually happened to docs/Webhook_Verification_and_Error_Log.csv.
- * The report is generated from real responses and log entries; nothing in it
- * is typed by hand. Exits with code 1 if any scenario misbehaves.
+ * The report is generated from real responses and log entries. The rows in
+ * docs/evidence/stripe-cli-deliveries.csv (recorded from a real Stripe CLI
+ * run, see stripe-cli-listen.txt) are appended unchanged, because that run
+ * needs a Stripe account and cannot be repeated by this script.
+ * Exits with code 1 if any scenario misbehaves.
  */
-import { writeFile } from 'node:fs/promises';
+import { readFile, writeFile } from 'node:fs/promises';
 import { scenarios, runScenario } from './harness.js';
 
 const COLUMNS = ['timestamp', 'event_id', 'event_type', 'stage', 'error_category', 'http_status', 'retry_action', 'resolution', 'notes'];
@@ -38,7 +41,9 @@ for (const scenario of scenarios) {
   }
 }
 
-const csv = [COLUMNS.join(','), ...rows.map((row) => COLUMNS.map((column) => csvCell(row[column])).join(','))].join('\n') + '\n';
+const stripeCliRows = await readFile(new URL('../docs/evidence/stripe-cli-deliveries.csv', import.meta.url), 'utf8').catch(() => '');
+const csv =
+  [COLUMNS.join(','), ...rows.map((row) => COLUMNS.map((column) => csvCell(row[column])).join(','))].join('\n') + '\n' + stripeCliRows;
 const target = new URL('../docs/Webhook_Verification_and_Error_Log.csv', import.meta.url);
 await writeFile(target, csv);
 
